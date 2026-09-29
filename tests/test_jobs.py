@@ -189,3 +189,57 @@ def test_weather_backfill_handles_429_unknown_variable_and_archive_start(env):
     store.commit("wipe")
     st = _wb(store, mp, "2026-09-29T21:17:00Z", OM_RUN_CAP=10_000, OM_DAILY_CAP=10_000)
     assert st["last"]["stop"].startswith("429") and st["complete"] is False
+
+
+def test_wrong_request_stops_single_runs_without_marking_runs_missing(env):
+    store, fe, fo, mp = env
+    mp.setattr(weather_backfill, "BACKFILL_ORDER", (("single_runs", "icon_d2"),))
+    mp.setitem(MODELS, "icon_d2", replace(MODELS["icon_d2"], single_runs_from=datetime(2026, 9, 1, tzinfo=UTC)))
+    fo.bad_request = "Parameter 'start_hour' must not be set"
+    st = _wb(store, mp, "2026-09-29T20:17:00Z", OM_RUN_CAP=10_000, OM_DAILY_CAP=10_000)
+    q = st["queues"]["single_runs/icon_d2"]
+    assert q["status"] == "error" and not q.get("unavailable") and not q.get("tried_empty")
+    assert len([c for c in fo.calls if "run" in c[1]]) <= 2 + 9   # one run tried (+ probe), not the whole queue
+
+
+def test_state_from_v01_is_repaired(env):
+    store, fe, fo, mp = env
+    mp.setattr(weather_backfill, "BACKFILL_ORDER", (("single_runs", "icon_d2"),))
+    mp.setitem(MODELS, "icon_d2", replace(MODELS["icon_d2"], single_runs_from=datetime(2026, 9, 28, tzinfo=UTC)))
+    store.put_json("state/weather_backfill.json", {"queues": {"single_runs/icon_d2": {
+        "unavailable": ["20260928T00"], "tried_empty": {"20260928T03": "2026-09-29T20:00:00+00:00"}, "status": "done"}}})
+    store.commit("old state")
+    st = _wb(store, mp, "2026-09-29T20:17:00Z", OM_RUN_CAP=10_000, OM_DAILY_CAP=10_000)
+    assert st["schema"] == 2 and "probe" in st
+    runs = {p.rsplit("/", 1)[-1][:11] for p in store.list("weather/runs/icon_d2")}
+    assert {"20260928T00", "20260928T03"} <= runs
+
+
+def test_previous_runs_stop_after_three_empty_months(env):
+    store, fe, fo, mp = env
+    mp.setattr(weather_backfill, "BACKFILL_ORDER", (("previous_runs", "icon_eu"),))
+    mp.setitem(MODELS, "icon_eu", replace(MODELS["icon_eu"], previous_runs_from=datetime(2025, 1, 1, tzinfo=UTC)))
+    fo.empty_before = datetime(2026, 6, 1, tzinfo=UTC)
+    st = _wb(store, mp, "2026-09-29T20:17:00Z", OM_RUN_CAP=10_000, OM_DAILY_CAP=10_000)
+    q = st["queues"]["previous_runs/icon_eu"]
+    assert q["first"].startswith("2026-06-01")
+    assert len(store.list("weather/previous_runs/icon_eu")) == 3          # Jun, Jul, Aug
+    prev_calls = [c for c in fo.calls if "previous-runs" in c[0] and "icon_eu" == c[1]["models"]]
+    assert len(prev_calls) == 2 * (3 + 3)                                  # 3 with data + 3 empty, 2 requests each
+
+
+def test_missing_cycle_is_learned_and_skipped(env):
+    store, fe, fo, mp = env
+    mp.setattr(weather_backfill, "BACKFILL_ORDER", (("single_runs", "ecmwf_ifs"),))
+    mp.setitem(MODELS, "ecmwf_ifs", replace(MODELS["ecmwf_ifs"], single_runs_from=datetime(2026, 6, 1, tzinfo=UTC)))
+    fo.missing_hours = ({6, 18}, datetime(2026, 9, 1, tzinfo=UTC))
+    st = _wb(store, mp, "2026-09-29T20:17:00Z", OM_RUN_CAP=100_000, OM_DAILY_CAP=100_000)
+    q = st["queues"]["single_runs/ecmwf_ifs"]
+    assert set(q["hour_gap"]) == {"06", "18"}
+    runs = store.list("weather/runs/ecmwf_ifs")
+    # newest run = 29.09. 06 UTC: 00 UTC 121x, 12 UTC 120x since June; 06 UTC 29x, 18 UTC 28x since September
+    assert len(runs) == 121 + 120 + 29 + 28
+    refused = [c for c in fo.calls if "run" in c[1] and c[1]["run"][11:13] in ("06", "18")
+               and c[1]["run"] < "2026-09-01"]
+    assert len(refused) <= 2 * 2 * weather_backfill.HOUR_GAP_STOP  # stopped asking, 2 requests per run
+    assert "complete" in st["last"]["stop"]

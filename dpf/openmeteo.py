@@ -46,6 +46,12 @@ class BadRequest(Exception):
         self.reason = reason
 
     @property
+    def bad_parameter(self) -> bool:
+        """A request we built wrong (not a missing run): stop the queue instead of skipping runs."""
+        low = self.reason.lower()
+        return "parameter" in low or "must not be set" in low or "invalid" in low
+
+    @property
     def bad_variable(self) -> str | None:
         m = re.search(r"invalid String value ([a-z0-9_]+)", self.reason)
         return m.group(1) if m else None
@@ -146,10 +152,14 @@ class Client:
 
     def single_run(self, model: WeatherModel, run: datetime, points, hours: int | None = None,
                    variables: tuple[str, ...] | None = None) -> pd.DataFrame:
-        """Archived run initialised at `run` (UTC)."""
-        extra = {"run": run.strftime("%Y-%m-%dT%H:%M")}
-        return self._points(SINGLE_RUNS, model, points, variables or model.variables, run,
-                            hours or model.horizon_h, extra)
+        """Archived run initialised at `run` (UTC), `hours` steps from the run start.
+
+        The Single Runs API refuses start_hour/end_hour; forecast_hours counts from the run.
+        """
+        hours = hours or model.horizon_h
+        extra = {"run": run.strftime("%Y-%m-%dT%H:%M"), "forecast_hours": hours}
+        return self._points(SINGLE_RUNS, model, points, variables or model.variables, run, hours, extra,
+                            window=False)
 
     def previous_runs(self, model: WeatherModel, points, start: datetime, end: datetime,
                       days: tuple[int, ...], variables: tuple[str, ...] | None = None) -> pd.DataFrame:
@@ -166,9 +176,12 @@ class Client:
             frames.append(part)
         return pd.concat(frames, ignore_index=True)
 
-    def _points(self, url, model, points, variables, start: datetime, hours: int, extra: dict) -> pd.DataFrame:
+    def _points(self, url, model, points, variables, start: datetime, hours: int, extra: dict,
+                window: bool = True) -> pd.DataFrame:
         start = start.astimezone(UTC)
         end = start + timedelta(hours=hours - 1)
+        span = {"start_hour": start.strftime("%Y-%m-%dT%H:%M"), "end_hour": end.strftime("%Y-%m-%dT%H:%M")} \
+            if window else {}
         frames = []
         groups: dict[str, list[Point]] = {}
         for p in points:
@@ -182,8 +195,7 @@ class Client:
                 "timezone": "GMT",
                 "timeformat": "unixtime",
                 "cell_selection": CELL.get(kind, "nearest"),
-                "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
-                "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
+                **span,
                 **extra,
             }
             data = self._get(url, params, weight(len(pts), len(variables), hours))

@@ -32,6 +32,7 @@ STATE = "state/weather_backfill.json"
 COMMIT_EVERY = 40          # files
 COMMIT_EVERY_S = 480       # seconds
 EMPTY_STREAK_STOP = 8      # consecutive runs without data = start of the archive reached
+HOUR_GAP_STOP = 10         # one cycle missing this often in a row = that cycle is not archived further back
 
 
 def prev_path(model: str, m: datetime) -> str:
@@ -93,19 +94,22 @@ class Runner:
         present = {p.rsplit("/", 1)[-1][:7] for p in self.store.list(f"weather/previous_runs/{name}")}
         present |= set(q.get("empty", []))
         todo = [m for m in reversed(months(start, last_complete)) if f"{m:%Y-%m}" not in present]
+        empty_run: list[datetime] = []
         for m in todo:
             if not self.time_left():
                 return "time"
             end = next_month(m)
             df = self.fetch(q, model, lambda v: self.client.previous_runs(model, POINTS, m, end, model.previous_days, v))
             if not _has_data(df, model.variables):
-                if m - model.previous_runs_from < timedelta(days=100):
-                    q["first"] = next_month(m).isoformat()   # archive starts after this month
+                empty_run.append(m)
+                if len(empty_run) >= 3 or m - model.previous_runs_from < timedelta(days=100):
+                    q["first"] = next_month(empty_run[0]).isoformat()   # archive starts after the gap
                     self.log.append(f"previous_runs/{name}: no data for {m:%Y-%m}, archive starts {q['first'][:7]}")
                     return "done"
-                q.setdefault("empty", []).append(f"{m:%Y-%m}")  # a gap, not the start: keep going
+                q.setdefault("empty", []).append(f"{m:%Y-%m}")  # maybe a gap: keep going
                 self.log.append(f"previous_runs/{name}: no data for {m:%Y-%m}")
                 continue
+            empty_run = []
             df["available_at"] = df["valid"] - pd.to_timedelta(df["lead_days"].astype("int64") * 24, unit="h") \
                 + pd.Timedelta(hours=model.delay_h)
             df["fetched_at"] = pd.Timestamp(datetime.now(UTC)).floor("s")
@@ -127,10 +131,16 @@ class Runner:
         tried = {k: v for k, v in q.get("tried_empty", {}).items() if self.t - datetime.fromisoformat(v) < timedelta(hours=24)}
         q["tried_empty"] = tried
         streak = 0
+        # Some cycles (e.g. ECMWF 06/18 UTC in older years) may be missing from the archive
+        # while the others exist. After HOUR_GAP_STOP misses in a row for one cycle, older
+        # runs of that cycle are skipped instead of paying for each refusal.
+        hour_gap: dict[str, str] = q.setdefault("hour_gap", {})
+        hour_miss: dict[str, int] = {}
+        hours_with_data: set[str] = set()
         r = newest
         while r >= first:
-            key = f"{r:%Y%m%dT%H}"
-            if key in present or key in unavailable or key in tried:
+            key, hh = f"{r:%Y%m%dT%H}", f"{r:%H}"
+            if key in present or key in unavailable or key in tried or (hh in hour_gap and key < hour_gap[hh]):
                 r -= step
                 continue
             if not self.time_left():
@@ -138,6 +148,8 @@ class Runner:
             try:
                 df = self.fetch(q, model, lambda v: self.client.single_run(model, r, POINTS, model.horizon_h, v))
             except openmeteo.BadRequest as exc:
+                if exc.bad_parameter:
+                    raise   # our request is wrong: stop, do not mark runs as missing
                 df = None
                 self.log.append(f"single_runs/{name} {key}: {exc.reason[:120]}")
             if df is None or not _has_data(df, model.variables):
@@ -147,6 +159,10 @@ class Runner:
                 else:                                # fresh runs may not be archived yet: retry tomorrow
                     tried[key] = self.t.isoformat()
                 streak += 1
+                hour_miss[hh] = hour_miss.get(hh, 0) + 1
+                if hour_miss[hh] >= HOUR_GAP_STOP and hours_with_data - {hh}:
+                    hour_gap[hh] = key
+                    self.log.append(f"single_runs/{name}: {hh} UTC runs missing before {key}, skipped")
                 # Documented archive start wrong? Only near it may a gap end the queue;
                 # further inside, a gap is just a gap and older runs are still fetched.
                 if streak >= EMPTY_STREAK_STOP and r - model.single_runs_from < timedelta(days=60):
@@ -156,6 +172,8 @@ class Runner:
                 r -= step
                 continue
             streak = 0
+            hour_miss[hh] = 0
+            hours_with_data.add(hh)
             df.insert(0, "run", pd.Timestamp(r))
             df.insert(1, "available_at", pd.Timestamp(r + timedelta(hours=model.delay_h)))
             df.insert(2, "fetched_at", pd.Timestamp(datetime.now(UTC)).floor("s"))
@@ -207,6 +225,15 @@ def run(store: Store, max_s: float = 3000) -> int:
         state["day"], state["day_used"] = today, 0.0
     state["_counted"] = 0.0
     state.setdefault("queues", {})
+    if state.get("schema", 1) < 2:
+        # v0.1 asked the Single Runs API with start_hour, which it refuses: nothing it marked
+        # as missing is really missing, and the probe never ran.
+        for key, q in state["queues"].items():
+            if key.startswith("single_runs/"):
+                for k in ("unavailable", "tried_empty", "first", "status"):
+                    q.pop(k, None)
+        state.pop("probe", None)
+        state["schema"] = 2
     budget = openmeteo.Budget(run_cap=OM_RUN_CAP, day_left=OM_DAILY_CAP - state["day_used"], minute_cap=OM_MINUTE_CAP)
     client = openmeteo.Client(budget)
     runner = Runner(store, state, client, t, max_s)

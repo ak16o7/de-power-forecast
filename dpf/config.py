@@ -91,7 +91,7 @@ MODELS: dict[str, WeatherModel] = {
         tuple(_SOLAR + ["wind_speed_100m", "wind_direction_100m"] + _COMMON_TAIL),
         run_every_h=6, horizon_h=72, delay_h=8.5,   # measured 7.1-7.5 h
         single_runs_from=datetime(2024, 3, 14, tzinfo=UTC),
-        previous_runs_from=datetime(2024, 1, 1, tzinfo=UTC),
+        previous_runs_from=datetime(2025, 10, 1, tzinfo=UTC),  # first backfill: empty before 2025-10
     ),
     "icon_d2": WeatherModel(
         "icon_d2", "dwd_icon_d2",

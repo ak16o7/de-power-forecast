@@ -77,6 +77,7 @@ def test_multi_location_frames_and_cell_selection():
     cells = sorted(p["cell_selection"] for _, p in fake.calls)
     assert cells == ["land", "sea"]  # onshore and offshore requested separately
     assert all(p["run"] == "2026-09-29T00:00" for _, p in fake.calls)
+    assert all(p["forecast_hours"] == 6 and "start_hour" not in p for _, p in fake.calls)
     assert c.weight_used == pytest.approx(len(POINTS))
 
 

@@ -100,6 +100,8 @@ class FakeOpenMeteo:
         self.reject_vars: set[str] = set()
         self.empty_before: datetime | None = None     # archive start
         self.rate_limit_after: int | None = None       # 429 after N data calls
+        self.bad_request: str | None = None            # answer every data call with this 400
+        self.missing_hours: tuple[set[int], datetime] | None = None  # (run hours, before) not archived
 
     def get(self, url, params=None, timeout=None):
         if url.endswith("meta.json"):
@@ -113,18 +115,27 @@ class FakeOpenMeteo:
         self.calls.append((url, p))
         if self.rate_limit_after is not None and len(self.calls) > self.rate_limit_after:
             return Resp(429, data={"error": True, "reason": "Hourly API request limit exceeded. Please try again in the next hour."})
+        if self.bad_request:
+            return Resp(400, data={"error": True, "reason": self.bad_request})
         hourly = p["hourly"].split(",")
         for v in hourly:
             if v in self.reject_vars or any(v.startswith(r + "_previous") for r in self.reject_vars):
                 return Resp(400, data={"error": True, "reason": f"Cannot initialize WeatherVariable from invalid String value {v} for key hourly"})
-        start = datetime.fromisoformat(p["start_hour"]).replace(tzinfo=UTC)
-        end = datetime.fromisoformat(p["end_hour"]).replace(tzinfo=UTC)
+        if "run" in p:  # like the real Single Runs API: no start/end, forecast_hours from the run
+            if "start_hour" in p or "end_hour" in p:
+                return Resp(400, data={"error": True, "reason": "Parameter 'start_hour' must not be set"})
+            start = datetime.fromisoformat(p["run"]).replace(tzinfo=UTC)
+            end = start + timedelta(hours=int(p.get("forecast_hours", 168)) - 1)
+            if self.missing_hours and start.hour in self.missing_hours[0] and start < self.missing_hours[1]:
+                return Resp(400, data={"error": True, "reason": f"The requested model run is not available. Model: {p['models']}, run: {p['run']}Z"})
+        else:
+            start = datetime.fromisoformat(p["start_hour"]).replace(tzinfo=UTC)
+            end = datetime.fromisoformat(p["end_hour"]).replace(tzinfo=UTC)
         times = pd.date_range(start, end, freq="h")
         lats = p["latitude"].split(",")
         empty = self.empty_before is not None and end < self.empty_before
         if "run" in p:
-            run = datetime.fromisoformat(p["run"]).replace(tzinfo=UTC)
-            empty = empty or (self.empty_before is not None and run < self.empty_before)
+            empty = empty or (self.empty_before is not None and start < self.empty_before)
         out = []
         for i, lat in enumerate(lats):
             h = {"time": [int(t.timestamp()) for t in times]}
