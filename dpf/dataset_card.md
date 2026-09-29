@@ -59,6 +59,7 @@ That is what makes backtests on this data honest.
 | `weather/runs/{model}/{YYYY-MM}/{run}.parquet` | One file per weather model run, 16 points, hourly | `run`, `valid`, `available_at`, `fetched_at`, `source` (`live` = recorded when published, `archive` = backfilled) |
 | `weather/previous_runs/{model}/{YYYY}/{YYYY-MM}.parquet` | Values predicted ≥ 24 h (`lead_days`=1) and ≥ 48 h (`lead_days`=2) before `valid` | `valid`, `available_at` = valid − N·24 h + model delay (upper bound) |
 | `capacity/latest.parquet`, `capacity/snapshots/{date}.parquet` | Installed capacity per month (GW), snapshots because it is revised later | `month`, `seen_at` |
+| `reports/baseline.json` | Baseline scores: TSO forecasts, persistence, naive day-ahead rules; MAE, RMSE, bias, nMAE per technology and lead time, overall, last 12 months and per month | `generated_at` |
 | `state/*.json`, `status.json` | Job bookkeeping and health | |
 
 Areas: `DE` (Germany) and the control areas `50HZ`, `AMP` (Amprion), `TTG` (TenneT), `TBW` (TransnetBW).

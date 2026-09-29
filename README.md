@@ -35,6 +35,17 @@ flowchart LR
 | `weather-backfill.yml` | stündlich | Wetterhistorie: erst Previous-Runs-Vintages ab 2024-01, dann jeder archivierte Modelllauf. Eigenes Tageslimit (8.000 von 10.000 Open-Meteo-Calls), macht nach Abbruch dort weiter, wo er aufgehört hat. |
 | `keepalive.yml` | wöchentlich | Verhindert, dass GitHub die Zeitpläne nach 60 Tagen ohne Commit abschaltet. |
 
+Nach dem Daily-Job rechnet `python -m dpf report` den Vergleichsbericht (`reports/baseline.json` im Dataset):
+die Messlatte, die das Modell schlagen muss.
+
+| Produkt | Vergleich | Hinweis |
+|---|---|---|
+| Day-Ahead | ÜNB-Day-Ahead (A01), gleiche Viertelstunde vorgestern, Mittel der letzten 14 Tage | ÜNB-Prognose erscheint erst 18:00 am Vortag, also nach unserem Abgabezeitpunkt |
+| Intraday, 15 min bis 8 h | neueste veröffentlichte ÜNB-Prognose (Intraday A40 ab 08:00, sonst Day-Ahead), dieselbe plus ihr letzter bekannter Fehler, Persistenz | Istwert gilt 1 h nach Ende der Viertelstunde als bekannt |
+
+Alle Vergleiche eines Produkts laufen auf denselben Viertelstunden. Grenzen stehen im Bericht selbst:
+Die Historie nutzt die heutigen, gemessenen Istwerte, und Solar-„Ist“ ist in Deutschland eine Hochrechnung der ÜNB.
+
 Kein Rechner muss dafür laufen. Secrets: `ENTSOE_API_KEY`, `HF_TOKEN` (Repository → Settings → Secrets and variables → Actions).
 
 ## Daten

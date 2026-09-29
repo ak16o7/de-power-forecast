@@ -1,8 +1,8 @@
 name: Daily
 
 # ENTSO-E month files (last 35 days refreshed, history back to 2024-01 filled in),
-# installed capacity, dataset card, health check. Fails at most once a day if
-# the recorder or the weather backfill went silent.
+# installed capacity, dataset card, health check, then the baseline report.
+# Fails at most once a day if the recorder or the weather backfill went silent.
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -31,3 +31,8 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+      # the bar to beat: TSO forecasts and simple rules, scored on the latest actuals
+      - run: python -m dpf report
+        if: always()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

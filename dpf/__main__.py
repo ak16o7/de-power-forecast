@@ -1,4 +1,4 @@
-"""python -m dpf record | daily | weather-backfill"""
+"""python -m dpf record | daily | weather-backfill | report"""
 from __future__ import annotations
 
 import argparse
@@ -10,13 +10,16 @@ from .util import setup_logging
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dpf")
-    ap.add_argument("job", choices=["record", "daily", "weather-backfill"])
+    ap.add_argument("job", choices=["record", "daily", "weather-backfill", "report"])
     ap.add_argument("--max-seconds", type=float, default=None, help="time budget for backfill jobs")
     args = ap.parse_args(argv)
     setup_logging()
     store = open_store()
     if args.job == "record":
         from .record import run
+        return run(store)
+    if args.job == "report":
+        from .baseline import run
         return run(store)
     if args.job == "daily":
         from .daily import run
