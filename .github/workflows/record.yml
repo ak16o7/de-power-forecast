@@ -1,0 +1,32 @@
+name: Record
+
+# Every 15 minutes: ENTSO-E actuals + TSO forecasts into the vintage log,
+# new weather model runs as soon as Open-Meteo publishes them.
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m dpf record
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}

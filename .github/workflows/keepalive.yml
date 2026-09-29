@@ -1,0 +1,23 @@
+name: Keepalive
+
+# GitHub disables scheduled workflows after 60 days without repository activity.
+# The jobs only write to Hugging Face, so re-enable them via the API every week.
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          for wf in record.yml daily.yml weather-backfill.yml keepalive.yml; do
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${wf}/enable" && echo "enabled ${wf}"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
