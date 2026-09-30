@@ -88,9 +88,22 @@ Walk-forward 09/2025 bis 08/2026, Fehler in % der installierten Leistung, alle S
 | 8 h | 0,61 % | 0,66 % | 1,06 % | 1,65 % | 1,71 % | 2,13 % | 5,02 % | 5,22 % | 6,36 % |
 
 v2 ist bei jedem Vorlauf mindestens so gut wie die beste einfache Regel und schlägt die
-veröffentlichte ÜNB-Prognose bei 15 min um 35–46 %. Das P10–P90-Band trifft 78–80 %.
-Noch fehlt der schärfste Gegner: die laufend aktualisierte ÜNB-Prognose (A18). Sie ist nicht
-rückrechenbar, der Recorder zeichnet sie seit dem 29.09.2026 auf.
+veröffentlichten starren ÜNB-Prognosen bei 15 min um 35–46 %. Das P10–P90-Band trifft 78–80 %.
+
+**Strengerer Gegner: die laufend aktualisierte ÜNB-Prognose (A18).** Im Archiv (ENTSO-E, identisch
+bei Energy-Charts als „current“) liegt nur ihre Endfassung. Die wird laut Mitschnitt bis 30–80 min
+nach Lieferbeginn weiter überarbeitet, ist also stärker als alles, was die ÜNB zur Ausgabezeit
+wussten. Schlägt v2 sie, ist das eindeutig; verliert v2, ist es offen.
+
+| Vorlauf | Solar v2 / A18-Endfassung | Wind an Land | Wind auf See |
+|---|---|---|---|
+| 15 min | **0,29 %** / 0,40 % | 0,91 % / **0,84 %** | **3,20 %** / 3,70 % |
+| 30 min | **0,32 %** / 0,40 % | 0,98 % / **0,84 %** | **3,37 %** / 3,70 % |
+| 1 h | **0,37 %** / 0,40 % | 1,09 % / **0,84 %** | 3,71 % / 3,70 % |
+
+Belegt: v2 schlägt die ÜNB bei Solar bis 1 h und bei Wind auf See bis 30 min, selbst gegen deren
+Endfassung. Bei Wind an Land und längeren Vorläufen entscheidet erst der Mitschnitt der A18 zur
+jeweiligen Ausgabezeit (seit 29.09.2026) oder der Live-Betrieb.
 `python -m dpf backtest-id` (wöchentlich, `model.yml`) schreibt `reports/model_id.json`.
 
 Kein Rechner muss dafür laufen. Secrets: `ENTSOE_API_KEY`, `HF_TOKEN` (Repository → Settings → Secrets and variables → Actions).

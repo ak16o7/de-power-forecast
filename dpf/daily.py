@@ -28,7 +28,10 @@ from .util import berlin_midnight, iso, months, next_month, now, parse_iso
 LOG = logging.getLogger(__name__)
 
 STATE = "state/daily.json"
-STREAMS = {"a75": None, "a69_da": "A01", "a69_id": "A40"}
+STREAMS = {"a75": None, "a69_da": "A01", "a69_id": "A40",
+           # final archived version of the TSO's continuously updated forecast (see model_id)
+           "a69_current": "A18"}
+LEGACY_STREAMS = ("a75", "a69_da", "a69_id")   # tracked in state["backfilled"] before per-stream bookkeeping
 REFRESH_DAYS = 35
 
 
@@ -57,22 +60,30 @@ def entsoe_months(store: Store, t: datetime, state: dict, client: entsoe.Client,
     t0 = time.monotonic()
     until = berlin_midnight(t, 2)  # end of tomorrow (Berlin): A69 day-ahead reaches into it
     recent = set(months(t - timedelta(days=REFRESH_DAYS), until))
-    done = set(state.get("backfilled", []))
-    todo = [(m, True) for m in sorted(recent)]
-    todo += [(m, False) for m in reversed(months(ENTSOE_HISTORY_START, min(recent)))
-             if f"{m:%Y-%m}" not in done]
+    legacy = set(state.get("backfilled", []))
+    done = {s: set(state.get("backfilled_streams", {}).get(s, legacy if s in LEGACY_STREAMS else []))
+            for s in STREAMS}
+    history = list(reversed(months(ENTSOE_HISTORY_START, min(recent))))
+    todo = [(m, True, list(STREAMS)) for m in sorted(recent)]
+    todo += [(m, False, [s for s in STREAMS if f"{m:%Y-%m}" not in done[s]]) for m in history]
+    todo = [x for x in todo if x[2]]
     written, stopped = 0, False
-    for m, is_recent in todo:
+
+    def save_state():
+        state["backfilled_streams"] = {s: sorted(v) for s, v in done.items()}
+        state["backfilled"] = sorted(set.intersection(*(done[s] for s in LEGACY_STREAMS)))
+
+    for m, is_recent, streams in todo:
         if time.monotonic() - t0 > budget_s:
             stopped = True
             break
-        month_ok = True
-        for stream in STREAMS:
+        for stream in streams:
+            stream_ok = True
             for area in AREAS:
                 try:
                     df = fetch_month(client, stream, area, m, until)
                 except Exception as exc:
-                    month_ok = False
+                    stream_ok = False
                     errors.append(entsoe.mask(f"{stream}/{area}/{m:%Y-%m}: {type(exc).__name__}: {exc}")[:300])
                     continue
                 if df.empty:
@@ -85,14 +96,14 @@ def entsoe_months(store: Store, t: datetime, state: dict, client: entsoe.Client,
                           .sort_values(["psr", "ts"]).reset_index(drop=True))
                 store.put_parquet(path, df)
                 written += 1
-        if month_ok and not is_recent:
-            done.add(f"{m:%Y-%m}")
+            if stream_ok and not is_recent:
+                done[stream].add(f"{m:%Y-%m}")
         if store.pending >= 30:
-            state["backfilled"] = sorted(done)
+            save_state()
             store.put_json(STATE, state)
             store.commit(f"entsoe months up to {m:%Y-%m}")
-    state["backfilled"] = sorted(done)
-    missing = [f"{m:%Y-%m}" for m in months(ENTSOE_HISTORY_START, min(recent)) if f"{m:%Y-%m}" not in done]
+    save_state()
+    missing = [f"{s}/{m:%Y-%m}" for m in history for s in STREAMS if f"{m:%Y-%m}" not in done[s]]
     return {"files_written": written, "requests": client.requests, "refreshed": sorted(f"{m:%Y-%m}" for m in recent),
             "backfill_missing": missing, "stopped_on_time_budget": stopped}
 

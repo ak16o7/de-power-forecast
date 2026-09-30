@@ -113,7 +113,7 @@ def test_daily_backfill_is_resumable_and_refreshes_recent(env):
     assert store.read("README.md").startswith(b"---\nlicense: cc-by-4.0")
     calls = len(fe.calls)
     daily.run(store, budget_s=3600)
-    assert len(fe.calls) - calls == 2 * 3 * len(AREAS)   # next run: only the recent months again
+    assert len(fe.calls) - calls == 2 * len(daily.STREAMS) * len(AREAS)   # next run: only the recent months again
     status = store.read_json("status.json")
     assert status["health"]["problems"] == []      # grace period on the first day
     at(mp, "2026-09-29T12:00:00Z")
@@ -243,3 +243,19 @@ def test_missing_cycle_is_learned_and_skipped(env):
                and c[1]["run"] < "2026-09-01"]
     assert len(refused) <= 2 * 2 * weather_backfill.HOUR_GAP_STOP  # stopped asking, 2 requests per run
     assert "complete" in st["last"]["stop"]
+
+
+def test_new_stream_is_backfilled_without_refetching_old_ones(env):
+    store, fe, fo, mp = env
+    mp.setattr(daily, "ENTSOE_HISTORY_START", datetime(2026, 6, 1, tzinfo=UTC))
+    mp.setattr(daily, "capacity", lambda s, t: {"skipped": True})
+    store.put_json("state/daily.json", {"backfilled": ["2026-06", "2026-07"], "first_run": "2026-09-01T00:00:00Z"})
+    store.commit("state from before A18")
+    at(mp, "2026-09-29T03:41:00Z")
+    daily.run(store, budget_s=3600)
+    old_months = [c for c in fe.calls if c["periodStart"].startswith(("202606", "202607"))]
+    assert {c.get("processType") for c in old_months} == {"A18"}          # only the new stream
+    st = store.read_json("state/daily.json")
+    assert st["backfilled_streams"]["a69_current"] == ["2026-06", "2026-07"]
+    assert st["backfilled"] == ["2026-06", "2026-07"]
+    assert store.read("entsoe/a69_current/DE/2026/2026-06.parquet") is not None

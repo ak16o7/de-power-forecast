@@ -41,6 +41,7 @@ PARAMS = dict(objective="l1", learning_rate=0.05, num_leaves=63, min_data_in_lea
               seed=42, deterministic=True, force_row_wise=True, verbose=-1)
 ROUNDS = 400
 REPORT = "reports/model_id.json"
+PREDICTIONS = "reports/model_id_backtest.parquet"
 Q = pd.Timedelta(minutes=15)
 
 
@@ -49,7 +50,7 @@ def _at(s: pd.Series, ts: pd.DatetimeIndex) -> np.ndarray:
 
 
 def rows(y: pd.Series, da: pd.Series, id_: pd.Series, cap: pd.Series,
-         issues: pd.DatetimeIndex, ks) -> pd.DataFrame:
+         issues: pd.DatetimeIndex, ks, a18: pd.Series | None = None) -> pd.DataFrame:
     """One row per (issue time, lead k). Every input is looked up at a time <= its availability."""
     out = []
     for k in ks:
@@ -83,6 +84,9 @@ def rows(y: pd.Series, da: pd.Series, id_: pd.Series, cap: pd.Series,
             # targets and rules, in MW
             "y": _at(y, t), "cap": c, "tso_best": base, "tso_last_error": base + err[0] * c,
             "persistence": _at(y, L),
+            # benchmark only, never an input: the archived final version of the TSO's
+            # continuously updated forecast, partly revised after delivery started
+            "a18_final": _at(a18, t) if a18 is not None else np.nan,
         })
         out.append(df)
     return pd.concat(out, ignore_index=True)
@@ -118,12 +122,13 @@ def backtest(store: Store, test_months: list[datetime]) -> pd.DataFrame:
     da = baseline.load(store, "a69_da").reindex(idx)
     id_ = baseline.load(store, "a69_id").reindex(idx)
     cap = capacity_known(store, idx)
+    a18 = baseline.load(store, "a69_current").reindex(idx)
     hourly = pd.date_range(TRAIN_FROM, end, freq="h", inclusive="left")
     every_qh = pd.date_range(test_months[0] - pd.Timedelta(hours=8), end, freq="15min", inclusive="left")
     out = []
     for tech in TECHS:
         train_all = rows(actual[tech], da[tech], id_[tech], cap[tech], hourly, TRAIN_K)
-        test_all = rows(actual[tech], da[tech], id_[tech], cap[tech], every_qh, EVAL_K)
+        test_all = rows(actual[tech], da[tech], id_[tech], cap[tech], every_qh, EVAL_K, a18[tech])
         for m in test_months:
             m_ts = pd.Timestamp(m)
             calib_from = m_ts - pd.DateOffset(months=CALIBRATION_MONTHS)
@@ -136,7 +141,7 @@ def backtest(store: Store, test_months: list[datetime]) -> pd.DataFrame:
             test["p90"] = test["p50"] + test["k"].map(q["hi"]).to_numpy() * test["cap"]
             test["tech"] = tech
             out.append(test[["issue", "target", "k", "tech", "y", "p10", "p50", "p90",
-                             "tso_best", "tso_last_error", "persistence"]])
+                             "tso_best", "tso_last_error", "persistence", "a18_final"]])
             LOG.info("intraday %s %s done", tech, f"{m:%Y-%m}")
     res = pd.concat(out, ignore_index=True)
     res["tech"] = res["tech"].astype("string")
@@ -160,6 +165,13 @@ def score(res: pd.DataFrame, cap_eval: pd.DataFrame) -> list[dict]:
         row["skill_vs_best_rule"] = round(1 - row["model_nmae_pct"] / row[f"{best_rule}_nmae_pct"], 3)
         row["skill_vs_tso"] = round(1 - row["model_nmae_pct"] / row["tso_best_nmae_pct"], 3)
         row["p10_p90_coverage"] = round(float(((g["y"] >= g["p10"]) & (g["y"] <= g["p90"])).mean()), 3)
+        h = g.dropna(subset=["a18_final"])
+        if len(h):
+            ch = cap_eval[tech].reindex(pd.DatetimeIndex(h["target"])).to_numpy()
+            row["a18_final_n"] = int(len(h))
+            row["a18_final_nmae_pct"] = round(float(((h["a18_final"] - h["y"]).abs() / ch).mean() * 100), 2)
+            row["model_on_a18_rows_nmae_pct"] = round(float(((h["p50"] - h["y"]).abs() / ch).mean() * 100), 2)
+            row["skill_vs_a18_final"] = round(1 - row["model_on_a18_rows_nmae_pct"] / row["a18_final_nmae_pct"], 3)
         rows_.append(row)
     return rows_
 
@@ -181,16 +193,20 @@ def run(store: Store, n_months: int = 12) -> int:
             "walk_forward": "each month predicted by a model trained only on earlier targets",
             "band": "P10/P90 per lead time from residuals on the two months before each test month",
             "compared_with": "TSO forecast as published, TSO plus its last known error, persistence; same rows",
-            "not_yet": "the TSO 'current' forecast (A18) is being recorded since 2026-09-29 and will be "
-                       "added as a benchmark once enough weeks exist",
+            "a18_final": "archived final version of the TSO's continuously updated forecast (A18, also on "
+                         "Energy-Charts as 'current'); keeps changing until ~30-80 min after delivery starts, "
+                         "so it is stronger than what the TSO knew at issue time: beating it is conclusive, "
+                         "losing to it is not. The exact A18 as of issue time is recorded since 2026-09-29",
             "limits": "history uses today's metered actuals, also as inputs; no weather input yet",
         },
         "scores": score(res, cap_eval),
     }
     store.put_json(REPORT, report)
+    store.put_parquet(PREDICTIONS, res)
     store.commit(f"intraday model backtest {t:%Y-%m-%d}")
     for r in report["scores"]:
-        LOG.info("%-8s %3d min  model %5.2f %%  TSO %5.2f %%  TSO+err %5.2f %%  skill vs best rule %+.1f %%  cov %.0f %%",
+        LOG.info("%-8s %3d min  model %5.2f %%  TSO %5.2f %%  TSO+err %5.2f %%  A18 final %5s %%  skill vs best rule %+.1f %%  vs A18 final %s  cov %.0f %%",
                  r["tech"], r["lead_min"], r["model_nmae_pct"], r["tso_best_nmae_pct"],
-                 r["tso_last_error_nmae_pct"], 100 * r["skill_vs_best_rule"], 100 * r["p10_p90_coverage"])
+                 r["tso_last_error_nmae_pct"], r.get("a18_final_nmae_pct"), 100 * r["skill_vs_best_rule"],
+                 r.get("skill_vs_a18_final"), 100 * r["p10_p90_coverage"])
     return 0

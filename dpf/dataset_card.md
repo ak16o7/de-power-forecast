@@ -54,6 +54,7 @@ That is what makes backtests on this data honest.
 |---|---|---|
 | `entsoe/a75/{area}/{YYYY}/{YYYY-MM}.parquet` | Actual generation (ENTSO-E A75), 15 min, MW, latest known value | `ts` (interval start, UTC), `fetched_at` |
 | `entsoe/a69_da/…`, `entsoe/a69_id/…` | TSO wind & solar forecasts, day-ahead (A01, published ~18:00 CET D-1) and intraday (A40, ~08:00 CET D) | `ts`, `fetched_at` |
+| `entsoe/a69_current/…` | TSO continuously updated forecast (A18), final archived version only: revised until ~30–80 min after delivery starts, so not a vintage (see `vintages/` for versions as seen) | `ts`, `fetched_at` |
 | `vintages/entsoe/{YYYY}/{YYYY-MM-DD}.parquet` | Recorder log every 15 min: each new or changed value of A75 and A69 (day-ahead, intraday, current) with the time we saw it | `ts`, `seen_at` |
 | `vintages/entsoe/parts/{day}/…` | Same for the current UTC day, compacted after midnight | |
 | `weather/runs/{model}/{YYYY-MM}/{run}.parquet` | One file per weather model run, 16 points, hourly | `run`, `valid`, `available_at`, `fetched_at`, `source` (`live` = recorded when published, `archive` = backfilled) |
@@ -61,7 +62,7 @@ That is what makes backtests on this data honest.
 | `capacity/latest.parquet`, `capacity/snapshots/{date}.parquet` | Installed capacity per month (GW), snapshots because it is revised later | `month`, `seen_at` |
 | `reports/baseline.json` | Baseline scores: TSO forecasts, persistence, naive day-ahead rules; MAE, RMSE, bias, nMAE per technology and lead time, overall, last 12 months and per month | `generated_at` |
 | `reports/model_da.json`, `reports/model_da_backtest.parquet` | Day-ahead model v1: walk-forward backtest (P10/P50/P90 per quarter hour) and scores against the TSO day-ahead forecast | `ts`, `generated_at` |
-| `reports/model_id.json` | Intraday model v2 (correction of the newest published TSO forecast, 15 min to 8 h): walk-forward scores against TSO, TSO plus last error and persistence | `generated_at` |
+| `reports/model_id.json`, `reports/model_id_backtest.parquet` | Intraday model v2 (correction of the newest published TSO forecast, 15 min to 8 h): walk-forward scores against TSO, TSO plus last error and persistence | `generated_at` |
 | `state/*.json`, `status.json` | Job bookkeeping and health | |
 
 Areas: `DE` (Germany) and the control areas `50HZ`, `AMP` (Amprion), `TTG` (TenneT), `TBW` (TransnetBW).
