@@ -33,7 +33,7 @@ flowchart LR
 | `record.yml` | alle 15 min | ENTSO-E-Ist (letzte 6 h) und ÜNB-Prognosen (Day-Ahead, Intraday, aktuell) für DE und die vier Regelzonen; nur neue oder geänderte Werte landen mit Zeitstempel im Vintage-Log. Jeder neue Wettermodelllauf wird einmal gespeichert. |
 | `daily.yml` | täglich | ENTSO-E-Monatsdateien: letzte 35 Tage neu (Messwerte ersetzen vorläufige), Historie ab 2024-01 wird aufgefüllt. Installierte Leistung als datierter Snapshot. Health-Check. |
 | `weather-backfill.yml` | stündlich | Wetterhistorie: erst Previous-Runs-Vintages ab 2024-01, dann jeder archivierte Modelllauf. Eigenes Tageslimit (8.000 von 10.000 Open-Meteo-Calls), macht nach Abbruch dort weiter, wo er aufgehört hat. |
-| `model.yml` | wöchentlich | Backtest des Day-Ahead-Modells gegen die ÜNB-Prognose. |
+| `model.yml` | wöchentlich | Backtests der Day-Ahead- und Intraday-Modelle gegen die ÜNB-Prognosen. |
 | `keepalive.yml` | wöchentlich | Verhindert, dass GitHub die Zeitpläne nach 60 Tagen ohne Commit abschaltet. |
 
 Nach dem Daily-Job rechnet `python -m dpf report` den Vergleichsbericht (`reports/baseline.json` im Dataset):
@@ -69,6 +69,29 @@ verliert aber gegen die ÜNB. Der Hauptgrund ist das Alter der Wetterdaten: v1 n
 vor ≥ 48 h, die ÜNB rechnen um 18:00 mit den neuesten. v1b nimmt die neuesten Läufe, die um
 11:00 verfügbar sind (ECMWF 00 UTC), sobald deren Archiv komplett ist.
 `python -m dpf backtest-da` (wöchentlich, `model.yml`) schreibt `reports/model_da.json`.
+
+## Modell v2: Intraday
+
+Ausgabe jede Viertelstunde, Ziel 15 min bis 8 h voraus. v2 sagt den Fehler der neuesten
+veröffentlichten ÜNB-Prognose voraus (Intraday ab 08:00, sonst Day-Ahead) und korrigiert sie.
+Eingaben: letzte bekannte Istwerte (Viertelstunde, die ≥ 1 h vor Ausgabe endete), die Fehler der
+ÜNB-Prognose in den Stunden davor, Sonnenstand, Kalender. Noch kein Wetter.
+
+Walk-forward 09/2025 bis 08/2026, Fehler in % der installierten Leistung, alle Spalten auf denselben
+(Ausgabezeit, Ziel)-Paaren:
+
+| Vorlauf | Solar v2 | Solar ÜNB | Solar ÜNB + letzter Fehler | Wind an Land v2 | ÜNB | ÜNB + Fehler | Wind auf See v2 | ÜNB | ÜNB + Fehler |
+|---|---|---|---|---|---|---|---|---|---|
+| 15 min | 0,29 % | 0,54 % | 0,38 % | 0,91 % | 1,59 % | 0,93 % | 3,20 % | 4,91 % | 3,20 % |
+| 1 h | 0,37 % | 0,55 % | 0,52 % | 1,09 % | 1,62 % | 1,21 % | 3,71 % | 4,95 % | 3,94 % |
+| 4 h | 0,52 % | 0,58 % | 0,86 % | 1,49 % | 1,68 % | 1,83 % | 4,67 % | 5,07 % | 5,56 % |
+| 8 h | 0,61 % | 0,66 % | 1,06 % | 1,65 % | 1,71 % | 2,13 % | 5,02 % | 5,22 % | 6,36 % |
+
+v2 ist bei jedem Vorlauf mindestens so gut wie die beste einfache Regel und schlägt die
+veröffentlichte ÜNB-Prognose bei 15 min um 35–46 %. Das P10–P90-Band trifft 78–80 %.
+Noch fehlt der schärfste Gegner: die laufend aktualisierte ÜNB-Prognose (A18). Sie ist nicht
+rückrechenbar, der Recorder zeichnet sie seit dem 29.09.2026 auf.
+`python -m dpf backtest-id` (wöchentlich, `model.yml`) schreibt `reports/model_id.json`.
 
 Kein Rechner muss dafür laufen. Secrets: `ENTSOE_API_KEY`, `HF_TOKEN` (Repository → Settings → Secrets and variables → Actions).
 

@@ -61,6 +61,7 @@ That is what makes backtests on this data honest.
 | `capacity/latest.parquet`, `capacity/snapshots/{date}.parquet` | Installed capacity per month (GW), snapshots because it is revised later | `month`, `seen_at` |
 | `reports/baseline.json` | Baseline scores: TSO forecasts, persistence, naive day-ahead rules; MAE, RMSE, bias, nMAE per technology and lead time, overall, last 12 months and per month | `generated_at` |
 | `reports/model_da.json`, `reports/model_da_backtest.parquet` | Day-ahead model v1: walk-forward backtest (P10/P50/P90 per quarter hour) and scores against the TSO day-ahead forecast | `ts`, `generated_at` |
+| `reports/model_id.json` | Intraday model v2 (correction of the newest published TSO forecast, 15 min to 8 h): walk-forward scores against TSO, TSO plus last error and persistence | `generated_at` |
 | `state/*.json`, `status.json` | Job bookkeeping and health | |
 
 Areas: `DE` (Germany) and the control areas `50HZ`, `AMP` (Amprion), `TTG` (TenneT), `TBW` (TransnetBW).
