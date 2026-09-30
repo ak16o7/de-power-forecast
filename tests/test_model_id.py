@@ -41,3 +41,14 @@ def test_intraday_model_learns_the_persistent_tso_error(monkeypatch):
     err_model = np.abs(model_id.predict(model, test) - test["y"]).mean()
     err_tso = np.abs(test["tso_best"] - test["y"]).mean()
     assert err_model < 0.8 * err_tso
+
+
+def test_paired_t_uses_days_and_detects_a_clear_difference():
+    t = pd.date_range("2026-01-01", periods=96 * 60, freq="15min", tz=UTC)
+    rng = np.random.default_rng(5)
+    noise = rng.normal(0, 1, len(t))
+    assert model_id.verdict(model_id.paired_t(pd.Series(t), 0.5 * noise, noise)) == "model better"
+    other = rng.normal(0, 1, len(t))
+    assert model_id.verdict(model_id.paired_t(pd.Series(t), other, noise)) == "not distinguishable"
+    assert model_id.verdict(model_id.paired_t(pd.Series(t), noise, noise)) == "not distinguishable"
+    assert model_id.verdict(model_id.paired_t(pd.Series(t[:96 * 3]), noise[:288], noise[:288])) == "too few days"

@@ -148,6 +148,25 @@ def backtest(store: Store, test_months: list[datetime]) -> pd.DataFrame:
     return res
 
 
+def paired_t(target: pd.Series, a: np.ndarray, b: np.ndarray) -> float:
+    """t statistic of mean(|a| - |b|) with days as the unit (errors within a day are not
+    independent) and the day-to-day autocorrelation discounted. Below -2: a is better."""
+    day = pd.Series(np.abs(a) - np.abs(b), index=pd.DatetimeIndex(target)).groupby(lambda x: x.date()).mean()
+    if len(day) < 5:
+        return float("nan")
+    if day.std() == 0:
+        return 0.0
+    rho = max(float(day.autocorr(1)), 0.0) if len(day) > 2 else 0.0
+    n_eff = len(day) * (1 - rho) / (1 + rho)
+    return float(day.mean() / (day.std() / np.sqrt(n_eff)))
+
+
+def verdict(t: float) -> str:
+    if np.isnan(t):
+        return "too few days"
+    return "model better" if t < -2 else ("benchmark better" if t > 2 else "not distinguishable")
+
+
 def score(res: pd.DataFrame, cap_eval: pd.DataFrame) -> list[dict]:
     rows_ = []
     cols = ["p50", "tso_best", "tso_last_error", "persistence"]
@@ -164,6 +183,9 @@ def score(res: pd.DataFrame, cap_eval: pd.DataFrame) -> list[dict]:
         row["best_rule"] = best_rule
         row["skill_vs_best_rule"] = round(1 - row["model_nmae_pct"] / row[f"{best_rule}_nmae_pct"], 3)
         row["skill_vs_tso"] = round(1 - row["model_nmae_pct"] / row["tso_best_nmae_pct"], 3)
+        t_rule = paired_t(g["target"], (g["p50"] - g["y"]).to_numpy() / c, (g[best_rule] - g["y"]).to_numpy() / c)
+        row["t_vs_best_rule"] = round(t_rule, 1)
+        row["verdict_vs_best_rule"] = verdict(t_rule)
         row["p10_p90_coverage"] = round(float(((g["y"] >= g["p10"]) & (g["y"] <= g["p90"])).mean()), 3)
         h = g.dropna(subset=["a18_final"])
         if len(h):
@@ -172,6 +194,9 @@ def score(res: pd.DataFrame, cap_eval: pd.DataFrame) -> list[dict]:
             row["a18_final_nmae_pct"] = round(float(((h["a18_final"] - h["y"]).abs() / ch).mean() * 100), 2)
             row["model_on_a18_rows_nmae_pct"] = round(float(((h["p50"] - h["y"]).abs() / ch).mean() * 100), 2)
             row["skill_vs_a18_final"] = round(1 - row["model_on_a18_rows_nmae_pct"] / row["a18_final_nmae_pct"], 3)
+            t_a18 = paired_t(h["target"], (h["p50"] - h["y"]).to_numpy() / ch, (h["a18_final"] - h["y"]).to_numpy() / ch)
+            row["t_vs_a18_final"] = round(t_a18, 1)
+            row["verdict_vs_a18_final"] = verdict(t_a18)
         rows_.append(row)
     return rows_
 
@@ -193,6 +218,8 @@ def run(store: Store, n_months: int = 12) -> int:
             "walk_forward": "each month predicted by a model trained only on earlier targets",
             "band": "P10/P90 per lead time from residuals on the two months before each test month",
             "compared_with": "TSO forecast as published, TSO plus its last known error, persistence; same rows",
+            "significance": "paired test on daily mean absolute errors, autocorrelation-adjusted; "
+                            "verdicts need |t| > 2",
             "a18_final": "archived final version of the TSO's continuously updated forecast (A18, also on "
                          "Energy-Charts as 'current'); keeps changing until ~30-80 min after delivery starts, "
                          "so it is stronger than what the TSO knew at issue time: beating it is conclusive, "
@@ -205,8 +232,8 @@ def run(store: Store, n_months: int = 12) -> int:
     store.put_parquet(PREDICTIONS, res)
     store.commit(f"intraday model backtest {t:%Y-%m-%d}")
     for r in report["scores"]:
-        LOG.info("%-8s %3d min  model %5.2f %%  TSO %5.2f %%  TSO+err %5.2f %%  A18 final %5s %%  skill vs best rule %+.1f %%  vs A18 final %s  cov %.0f %%",
+        LOG.info("%-8s %3d min  model %5.2f %%  TSO %5.2f %%  TSO+err %5.2f %%  A18 final %5s %%  skill vs best rule %+.1f %%  vs A18 final %s (%s)  cov %.0f %%",
                  r["tech"], r["lead_min"], r["model_nmae_pct"], r["tso_best_nmae_pct"],
                  r["tso_last_error_nmae_pct"], r.get("a18_final_nmae_pct"), 100 * r["skill_vs_best_rule"],
-                 r.get("skill_vs_a18_final"), 100 * r["p10_p90_coverage"])
+                 r.get("skill_vs_a18_final"), r.get("verdict_vs_a18_final"), 100 * r["p10_p90_coverage"])
     return 0

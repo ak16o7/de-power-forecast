@@ -101,9 +101,11 @@ wussten. Schlägt v2 sie, ist das eindeutig; verliert v2, ist es offen.
 | 30 min | **0,32 %** / 0,40 % | 0,98 % / **0,84 %** | **3,37 %** / 3,70 % |
 | 1 h | **0,37 %** / 0,40 % | 1,09 % / **0,84 %** | 3,71 % / 3,70 % |
 
-Belegt: v2 schlägt die ÜNB bei Solar bis 1 h und bei Wind auf See bis 30 min, selbst gegen deren
-Endfassung. Bei Wind an Land und längeren Vorläufen entscheidet erst der Mitschnitt der A18 zur
-jeweiligen Ausgabezeit (seit 29.09.2026) oder der Live-Betrieb.
+Statistisch belegt (Test auf Tagesbasis, |t| > 2): v2 schlägt die A18-Endfassung bei Solar und
+Wind auf See bis 30 min. Bei 1 h sind beide nicht unterscheidbar; bei Wind an Land ist die
+Endfassung besser. Diese Fälle entscheidet der Mitschnitt der A18 zur jeweiligen Ausgabezeit
+(lückenlos seit 30.09.2026): für Unterschiede um 20 % reichen bei Wind etwa 4–6 Wochen, bei Solar
+eher 3 Monate, für eine Aussage über alle Jahreszeiten ein Jahr.
 `python -m dpf backtest-id` (wöchentlich, `model.yml`) schreibt `reports/model_id.json`.
 
 Kein Rechner muss dafür laufen. Secrets: `ENTSOE_API_KEY`, `HF_TOKEN` (Repository → Settings → Secrets and variables → Actions).
