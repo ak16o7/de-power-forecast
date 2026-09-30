@@ -101,6 +101,7 @@ class FakeOpenMeteo:
         self.empty_before: datetime | None = None     # archive start
         self.rate_limit_after: int | None = None       # 429 after N data calls
         self.bad_request: str | None = None            # answer every data call with this 400
+        self.truncate_next = 0                         # cut off the next N answers mid-JSON
         self.missing_hours: tuple[set[int], datetime] | None = None  # (run hours, before) not archived
 
     def get(self, url, params=None, timeout=None):
@@ -142,4 +143,8 @@ class FakeOpenMeteo:
             for v in hourly:
                 h[v] = [None if empty else round(float(lat) + t.hour + len(v) * 0.1, 2) for t in times]
             out.append({"latitude": float(lat), "hourly": h})
-        return Resp(200, data=out if len(lats) > 1 else out[0])
+        resp = Resp(200, data=out if len(lats) > 1 else out[0])
+        if self.truncate_next:
+            self.truncate_next -= 1
+            resp = Resp(200, resp.content[: len(resp.content) // 2])
+        return resp

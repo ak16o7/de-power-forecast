@@ -114,7 +114,12 @@ class Client:
                 last = type(exc).__name__
             else:
                 if r.status_code == 200:
-                    return r.json()
+                    try:
+                        return r.json()
+                    except ValueError:   # cut-off body (seen once on a 1.5 MB answer): ask again
+                        last = f"truncated JSON ({len(r.content)} bytes)"
+                        time.sleep(5 * 2 ** attempt)
+                        continue
                 reason = _reason(r)
                 if r.status_code == 429:
                     err = RateLimited(reason)

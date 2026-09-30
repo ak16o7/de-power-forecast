@@ -96,3 +96,12 @@ def test_errors_are_classified():
     assert e.bad_variable == "snow_depth_previous_day1"
     assert openmeteo.RateLimited("Daily API request limit exceeded.").scope == "day"
     assert openmeteo.RateLimited("Minutely API request limit exceeded.").scope == "minute"
+
+
+def test_truncated_answer_is_retried(monkeypatch):
+    monkeypatch.setattr(openmeteo.time, "sleep", lambda s: None)
+    fake = FakeOpenMeteo()
+    fake.truncate_next = 1
+    c = openmeteo.Client(session=fake)
+    df = c.single_run(MODELS["icon_d2"], datetime(2026, 9, 29, tzinfo=UTC), POINTS[:1], 6)
+    assert len(df) == 6 and len(fake.calls) == 2
