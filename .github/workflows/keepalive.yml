@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          for wf in record.yml daily.yml weather-backfill.yml keepalive.yml; do
+          for wf in record.yml daily.yml weather-backfill.yml model.yml keepalive.yml; do
             gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${wf}/enable" && echo "enabled ${wf}"
           done
         env:

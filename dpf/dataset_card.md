@@ -60,6 +60,7 @@ That is what makes backtests on this data honest.
 | `weather/previous_runs/{model}/{YYYY}/{YYYY-MM}.parquet` | Values predicted ≥ 24 h (`lead_days`=1) and ≥ 48 h (`lead_days`=2) before `valid` | `valid`, `available_at` = valid − N·24 h + model delay (upper bound) |
 | `capacity/latest.parquet`, `capacity/snapshots/{date}.parquet` | Installed capacity per month (GW), snapshots because it is revised later | `month`, `seen_at` |
 | `reports/baseline.json` | Baseline scores: TSO forecasts, persistence, naive day-ahead rules; MAE, RMSE, bias, nMAE per technology and lead time, overall, last 12 months and per month | `generated_at` |
+| `reports/model_da.json`, `reports/model_da_backtest.parquet` | Day-ahead model v1: walk-forward backtest (P10/P50/P90 per quarter hour) and scores against the TSO day-ahead forecast | `ts`, `generated_at` |
 | `state/*.json`, `status.json` | Job bookkeeping and health | |
 
 Areas: `DE` (Germany) and the control areas `50HZ`, `AMP` (Amprion), `TTG` (TenneT), `TBW` (TransnetBW).
