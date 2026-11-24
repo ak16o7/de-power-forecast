@@ -7,7 +7,7 @@ Prognosen für die deutsche Solar-, Wind-an-Land- und Wind-auf-See-Erzeugung
 **Stand: Datenbasis.** Dieses Repo sammelt zuerst die Daten, vollautomatisch in
 GitHub Actions. Modell und Website bauen darauf auf.
 
-## Die Regel, die alles bestimmt
+## Backtest-Regel
 
 Jeder Wert trägt den Zeitpunkt, ab dem er verfügbar war. Eine Prognose, die um
 T erstellt wird, darf nur Werte mit `seen_at` bzw. `available_at` ≤ T benutzen.
