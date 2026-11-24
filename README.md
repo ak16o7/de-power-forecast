@@ -1,7 +1,7 @@
 # DE Power Forecast
 
 Prognosen für die deutsche Solar-, Wind-an-Land- und Wind-auf-See-Erzeugung
-(Intraday und Day-Ahead, mit Unsicherheitsband), ehrlich gegen die Prognosen der
+(Intraday und Day-Ahead, mit Unsicherheitsband), gegen die Prognosen der
 Übertragungsnetzbetreiber ausgewertet.
 
 **Stand: Datenbasis.** Dieses Repo sammelt zuerst die Daten, vollautomatisch in
