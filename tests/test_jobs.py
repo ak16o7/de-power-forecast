@@ -259,3 +259,72 @@ def test_new_stream_is_backfilled_without_refetching_old_ones(env):
     assert st["backfilled_streams"]["a69_current"] == ["2026-06", "2026-07"]
     assert st["backfilled"] == ["2026-06", "2026-07"]
     assert store.read("entsoe/a69_current/DE/2026/2026-06.parquet") is not None
+
+
+# ---------------------------------------------------------------- monthly squash
+class _SquashLog(LocalStore):
+    """LocalStore that records tag/squash calls like the HF store would see them."""
+
+    def __init__(self, root, fail_tag=False, tag_survives=True):
+        super().__init__(root)
+        self.calls, self.tags, self.fail_tag, self.tag_survives = [], set(), fail_tag, tag_survives
+
+    def tag_head(self, tag):
+        self.calls.append(("tag", tag))
+        if self.fail_tag:
+            raise RuntimeError("hub said no")
+        self.tags.add(tag)
+        return "c0ffee"
+
+    def squash_history(self):
+        self.calls.append(("squash",))
+        if not self.tag_survives:
+            self.tags.clear()
+        return True
+
+    def has_tag(self, tag):
+        return tag in self.tags
+
+
+def _quiet_daily(mp):
+    mp.setattr(daily, "ENTSOE_HISTORY_START", datetime(2026, 9, 1, tzinfo=UTC))
+    mp.setattr(daily, "capacity", lambda s, t: {"skipped": True})
+
+
+def test_squash_tags_the_head_first_and_records_it(env, tmp_path):
+    _, fe, fo, mp = env
+    _quiet_daily(mp)
+    store = _SquashLog(tmp_path / "s")
+    store.put_json(daily.STATE, {"last_squash": "2026-10-30T04:41:24Z"})
+    at(mp, "2026-11-29T04:41:30Z")
+    daily.run(store, budget_s=3600)
+    st = store.read_json(daily.STATE)
+    assert store.calls == [("tag", "snapshot-2026-11-29"), ("squash",)]
+    assert st["snapshots"] == [{"tag": "snapshot-2026-11-29", "commit": "c0ffee", "at": "2026-11-29T04:41:30Z"}]
+    assert st["last_squash"] == "2026-11-29T04:41:30Z" and st["last"]["errors"] == []
+    at(mp, "2026-11-29T12:00:00Z")   # same day again: nothing to do
+    daily.run(store, budget_s=0)
+    assert store.calls == [("tag", "snapshot-2026-11-29"), ("squash",)]
+
+
+def test_no_tag_no_squash_and_retry_next_run(env, tmp_path):
+    _, fe, fo, mp = env
+    _quiet_daily(mp)
+    store = _SquashLog(tmp_path / "s", fail_tag=True)
+    store.put_json(daily.STATE, {"last_squash": "2026-10-30T04:41:24Z"})
+    at(mp, "2026-11-29T04:41:30Z")
+    daily.run(store, budget_s=3600)
+    st = store.read_json(daily.STATE)
+    assert store.calls == [("tag", "snapshot-2026-11-29")]          # never squashed untagged
+    assert st["last_squash"] == "2026-10-30T04:41:24Z"              # so the next run tries again
+    assert any("squash: RuntimeError" in e for e in st["last"]["errors"])
+
+
+def test_a_tag_lost_in_the_squash_is_reported(env, tmp_path):
+    _, fe, fo, mp = env
+    _quiet_daily(mp)
+    store = _SquashLog(tmp_path / "s", tag_survives=False)
+    store.put_json(daily.STATE, {"last_squash": "2026-10-30T04:41:24Z"})
+    at(mp, "2026-11-29T04:41:30Z")
+    daily.run(store, budget_s=3600)
+    assert any("is gone after the squash" in e for e in store.read_json(daily.STATE)["last"]["errors"])

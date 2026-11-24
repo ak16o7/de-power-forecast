@@ -48,6 +48,8 @@ generation, collected automatically by the GitHub Actions jobs in
 A forecast issued at time T may only use rows with `seen_at` / `available_at` ≤ T.
 That is what makes backtests on this data honest.
 
+**Revisions.** Every job run is a commit; load an exact past state with `revision=<commit>`. Every 30 days the history of `main` is squashed. Before that, the head is tagged `snapshot-YYYY-MM-DD`; the tag keeps that commit and all earlier ones since the previous squash resolvable by hash. Tags are listed in `state/daily.json` (`snapshots`). Commits from before 2026-10-30 are gone.
+
 ## Files
 
 | Path | What | Time columns |

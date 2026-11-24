@@ -31,10 +31,10 @@ flowchart LR
 | Workflow | Zeitplan | Aufgabe |
 |---|---|---|
 | `record.yml` | alle 15 min | ENTSO-E-Ist (letzte 6 h) und ÜNB-Prognosen (Day-Ahead, Intraday, aktuell) für DE und die vier Regelzonen; nur neue oder geänderte Werte landen mit Zeitstempel im Vintage-Log. Jeder neue Wettermodelllauf wird einmal gespeichert. |
-| `daily.yml` | täglich | ENTSO-E-Monatsdateien: letzte 35 Tage neu (Messwerte ersetzen vorläufige), Historie ab 2024-01 wird aufgefüllt. Installierte Leistung als datierter Snapshot. Health-Check. |
+| `daily.yml` | täglich | ENTSO-E-Monatsdateien: letzte 35 Tage neu (Messwerte ersetzen vorläufige), Historie ab 2024-01 wird aufgefüllt. Installierte Leistung als datierter Snapshot. Health-Check. Alle 30 Tage wird die Versionsgeschichte des Datasets zusammengefasst; vorher bekommt der aktuelle Stand den Tag `snapshot-JJJJ-MM-TT`. |
 | `weather-backfill.yml` | stündlich | Wetterhistorie: erst Previous-Runs-Vintages ab 2024-01, dann jeder archivierte Modelllauf. Eigenes Tageslimit (8.000 von 10.000 Open-Meteo-Calls), macht nach Abbruch dort weiter, wo er aufgehört hat. |
 | `model.yml` | wöchentlich | Backtests der Day-Ahead- und Intraday-Modelle gegen die ÜNB-Prognosen. |
-| `keepalive.yml` | wöchentlich | Verhindert, dass GitHub die Zeitpläne nach 60 Tagen ohne Commit abschaltet. |
+| `keepalive.yml` | wöchentlich | Verhindert, dass GitHub die Workflows nach 60 Tagen ohne Commit abschaltet: schaltet sie per API wieder ein und macht einen leeren Commit, wenn 45 Tage lang keiner kam. Die Jobs schreiben nur nach Hugging Face, das zählt für GitHub nicht als Aktivität. |
 
 Nach dem Daily-Job rechnet `python -m dpf report` den Vergleichsbericht (`reports/baseline.json` im Dataset):
 die Messlatte, die das Modell schlagen muss.
@@ -115,6 +115,8 @@ Kein Rechner muss dafür laufen. Secrets: `ENTSOE_API_KEY`, `HF_TOKEN` (Reposito
 Öffentlich auf Hugging Face: [akderekaan/de-power-forecast-data](https://huggingface.co/datasets/akderekaan/de-power-forecast-data).
 Layout, Spalten und Lizenzen stehen in der Dataset-Card (`dpf/dataset_card.md`).
 Stand der Jobs: `status.json` und `state/*.json` im Dataset.
+
+**Versionen.** Jeder Job-Lauf ist ein Commit im Dataset; wer Daten liest, kann sich den Commit-Hash merken und genau diesen Stand später wieder laden (`revision=`). Damit die Historie nicht ins Unendliche wächst, fasst der Daily-Job sie alle 30 Tage zusammen. Vorher setzt er den Tag `snapshot-JJJJ-MM-TT` auf den letzten Stand. Der Tag hält diesen Commit und alle davor fest, daher bleibt jeder Hash seit der vorigen Zusammenfassung ladbar. Ohne Tag wird nicht zusammengefasst. Liste der Tags: `state/daily.json`, Feld `snapshots`. Hashes von vor dem 30.10.2026 sind verloren.
 
 | Quelle | Inhalt | Verfügbar ab |
 |---|---|---|

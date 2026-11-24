@@ -55,6 +55,13 @@ class Store:
         """Drop old file versions (the data carries its own timestamps). No-op locally."""
         return False
 
+    def tag_head(self, tag: str) -> str | None:
+        """Tag the current head; returns its commit, None where there is no history (locally)."""
+        return None
+
+    def has_tag(self, tag: str) -> bool:
+        return True
+
     @property
     def pending(self) -> int:
         return len(self._staged)
@@ -163,6 +170,17 @@ class HFStore(Store):
         self.api.super_squash_history(self.repo_id, repo_type="dataset",
                                       commit_message="Squash history (monthly housekeeping)")
         return True
+
+    def tag_head(self, tag: str) -> str | None:
+        refs = self.api.list_repo_refs(self.repo_id, repo_type="dataset")
+        head = next(b.target_commit for b in refs.branches if b.name == "main")
+        self.api.create_tag(self.repo_id, tag=tag, revision=head, repo_type="dataset", exist_ok=True,
+                            tag_message="State before the monthly squash; keeps every revision since the last one")
+        return head
+
+    def has_tag(self, tag: str) -> bool:
+        refs = self.api.list_repo_refs(self.repo_id, repo_type="dataset")
+        return any(t.name == tag for t in refs.tags)
 
     def _commit(self, adds, deletes, message) -> None:
         from huggingface_hub import CommitOperationAdd, CommitOperationDelete

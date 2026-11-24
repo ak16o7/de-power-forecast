@@ -28,6 +28,7 @@ from .util import berlin_midnight, iso, months, next_month, now, parse_iso
 LOG = logging.getLogger(__name__)
 
 STATE = "state/daily.json"
+SNAPSHOT_TAG = "snapshot-{t:%Y-%m-%d}"   # one per monthly squash
 STREAMS = {"a75": None, "a69_da": "A01", "a69_id": "A40",
            # final archived version of the TSO's continuously updated forecast (see model_id)
            "a69_current": "A18"}
@@ -161,10 +162,20 @@ def run(store: Store, budget_s: float = 1500) -> int:
     summary: dict = {"started": iso(t)}
     last_squash = parse_iso(state.get("last_squash"))
     if last_squash is None or t - last_squash > timedelta(days=30):
-        # ~200 commits a day would otherwise keep every old version of every file forever
+        # ~200 commits a day would otherwise pile up on main. Before the squash the head
+        # is tagged: the tag keeps that commit and all its ancestors, so every revision a
+        # consumer recorded since the previous squash (e.g. de-power-spread's signals)
+        # stays resolvable by its hash. No tag, no squash: a failure retries next run.
         try:
+            tag = SNAPSHOT_TAG.format(t=t)
+            head = store.tag_head(tag)
             if store.squash_history():
                 summary["squashed"] = True
+                if not store.has_tag(tag):
+                    errors.append(f"squash: tag {tag} is gone after the squash; revisions before {iso(t)} are lost")
+            if head:
+                state.setdefault("snapshots", []).append({"tag": tag, "commit": head, "at": iso(t)})
+                summary["snapshot"] = tag
             state["last_squash"] = iso(t)
         except Exception as exc:
             errors.append(f"squash: {type(exc).__name__}: {str(exc)[:200]}")

@@ -1,7 +1,9 @@
 name: Keepalive
 
-# GitHub disables scheduled workflows after 60 days without repository activity.
-# The jobs only write to Hugging Face, so re-enable them via the API every week.
+# GitHub disables workflows after 60 days without repository activity, and the jobs
+# only write to Hugging Face, which does not count. Every week: re-enable them via the
+# API, and push an empty commit once the repository has been quiet for 45 days (the
+# API call alone is not reliably counted as activity).
 on:
   schedule:
     - cron: "23 5 * * 1"
@@ -9,12 +11,24 @@ on:
 
 permissions:
   actions: write
+  contents: write
 
 jobs:
   keepalive:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v5
+      - name: Empty commit after 45 quiet days
+        run: |
+          age_days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          echo "last commit ${age_days} days ago"
+          if [ "$age_days" -ge 45 ]; then
+            git config user.name "ak16o7"
+            git config user.email "akderekaan@hotmail.com"
+            git commit --allow-empty -m "keepalive: $(date -u +%F)"
+            git push
+          fi
       - run: |
           for wf in record.yml daily.yml weather-backfill.yml model.yml keepalive.yml; do
             gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${wf}/enable" && echo "enabled ${wf}"
